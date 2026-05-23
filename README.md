@@ -1,0 +1,54 @@
+# contract-ops-mcp
+
+One [MCP](https://modelcontextprotocol.io) server for the whole **[contract-ops CLI suite](https://cli.drbaher.com/)** — wire it up once and an agent (Claude, Cursor, Codex, …) gets all nine local-first CLIs as tools: extract, draft, lint, compare, convert, review, and the template + signed-contract vaults. **Signing stays human-gated.**
+
+## Run this
+
+```jsonc
+// e.g. Claude Desktop / Cursor MCP config
+{
+  "mcpServers": {
+    "contract-ops": { "command": "npx", "args": ["-y", "contract-ops-mcp"] }
+  }
+}
+```
+
+The CLIs themselves must be installed (the server shells out to them). Fastest way to get all nine:
+
+```bash
+curl -fsSL https://cli.drbaher.com/install.sh | sh     # local
+# …or run the server + CLIs in one container: ghcr.io/drbaher/contract-ops
+```
+
+Call **`suite_status`** any time to see which CLIs are present and how to install any that aren't.
+
+## Tools
+
+Curated, ergonomic tools (typed inputs, JSON out) for the common operations, plus two escape hatches for the long tail:
+
+| Tool | What it does |
+|---|---|
+| `extract_contract` | Any contract (.md/.txt/.html/.docx/.pdf) → structured JSON (parties, dates, clauses, …) |
+| `lint_contract` | Internal-consistency findings (placeholders, broken refs, defined-term/numbering/date defects) |
+| `compare_versions` | Clause-aware drift between two versions (exit 0 clean · 2 substantive · 3 cosmetic · 4 moved) |
+| `fill_template` | Fill a template's placeholders with typed params (deterministic) |
+| `convert_to_pdf` | DOCX → PDF (needs a PDF backend, e.g. LibreOffice) |
+| `review_nda` | Score an NDA against a house playbook, with evidence |
+| `template_vault_find` / `template_vault_get` | Search / resolve versioned templates (read-only) |
+| `contract_vault_query` / `contract_vault_due` / `contract_vault_risk` | Query the signed-contract register; project renewal/notice deadlines; renewal-exposure (read-only) |
+| `verify_signature` / `verify_receipt` / `audit_show` | Verify a signed PDF / a receipt bundle / walk the audit log (**read-only**) |
+| `catalog(cli)` | Return any CLI's full `--catalog json` — discover the long tail |
+| `run(cli, args)` | Escape hatch: run any suite CLI with raw args (no shell) |
+| `suite_status` | Which CLIs are installed (+ versions) and how to install the rest |
+
+The curated set and `catalog`/`run` are **discovery-driven** — they ride the suite's uniform `--catalog json` contract, so they stay in sync as the CLIs evolve.
+
+## Safety
+
+- **Signing is human-gated.** Only sign-cli's **read/verify** operations are exposed (`verify_signature`, `verify_receipt`, `audit_show`) — never request-create or sign. Those stay behind [sign-cli](https://github.com/DrBaher/sign-cli)'s own MCP server with its per-signer approval tokens, so this server can't become an unguarded signing path.
+- **Filesystem lockdown.** File-path arguments to the curated tools are confined to `CONTRACT_OPS_MCP_BASE_DIR` (default: the working directory). Set it to widen the sandbox.
+- **No shell.** CLIs are invoked with `execFile` (no shell interpolation).
+
+## License
+
+MIT. Part of the [contract-ops CLI suite](https://cli.drbaher.com/). See [`AGENTS.md`](AGENTS.md) for the agent contract.

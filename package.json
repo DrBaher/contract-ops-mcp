@@ -1,0 +1,39 @@
+{
+  "name": "contract-ops-mcp",
+  "version": "0.1.0",
+  "description": "One MCP server for the whole contract-ops CLI suite — connect once, drive all nine local-first CLIs (extract, draft, lint, compare, convert, review, vault) as agent tools. Signing stays human-gated.",
+  "type": "module",
+  "bin": {
+    "contract-ops-mcp": "./contract-ops-mcp.mjs"
+  },
+  "files": [
+    "contract-ops-mcp.mjs",
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "contract-ops",
+    "mcp",
+    "model-context-protocol",
+    "agent-first",
+    "cli",
+    "legal-tech"
+  ],
+  "license": "MIT",
+  "author": "DrBaher <Drbaher@gmail.com>",
+  "homepage": "https://cli.drbaher.com/mcp/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DrBaher/contract-ops-mcp.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}
