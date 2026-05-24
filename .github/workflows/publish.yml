@@ -1,11 +1,21 @@
 name: Publish to npm
-# Requires a one-time npm "automation" token in the NPM_TOKEN repo secret.
+# OIDC Trusted Publishing — NO long-lived token.
+#
+# One-time setup on npmjs.com (already required before the first OIDC publish):
+#   package `contract-ops-mcp` → Settings → Trusted Publisher → GitHub Actions
+#   organization/user = DrBaher · repository = contract-ops-mcp
+#   workflow filename = publish.yml · environment = (leave blank)
+#
+# IMPORTANT: do NOT add `registry-url:` to actions/setup-node. With it, setup-node
+# writes a placeholder NODE_AUTH_TOKEN into .npmrc and npm sends *that* instead of
+# fetching an OIDC token — the masked-401/404 that blocked compare/draft. Without
+# it, npm >= 11.5.1 performs Trusted Publishing via the id-token below.
 on:
   push:
     tags: ['v*']
 permissions:
   contents: read
-  id-token: write # provenance
+  id-token: write
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -14,9 +24,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+      - name: ensure npm >= 11.5.1 (OIDC support)
+        run: npm install -g npm@latest && npm --version
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - name: verify tag matches package.json version
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"; exit 1
+          fi
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No NODE_AUTH_TOKEN — npm mints a short-lived OIDC token via id-token:write.
