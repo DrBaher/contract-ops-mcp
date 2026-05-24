@@ -4,6 +4,12 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.1 — 2026-05-24
+
+### Changed
+- Release pipeline now publishes via **npm OIDC Trusted Publishing** (no long-lived
+  `NPM_TOKEN`). No change to the server or its tools.
+
 ## 0.1.0 — 2026-05-23
 
 ### Added
