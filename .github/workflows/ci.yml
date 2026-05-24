@@ -13,3 +13,25 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: node --check contract-ops-mcp.mjs
       - run: npm test
+
+  # End-to-end against a real installed CLI: install contract-lint, then run
+  # the integration tests that drive the server's curated tools against it.
+  # Catches breakage when a CLI's --catalog / --json output shape shifts.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: install contract-lint on PATH
+        run: |
+          python -m venv /tmp/lintvenv
+          /tmp/lintvenv/bin/pip install -q contract-lint
+          echo "/tmp/lintvenv/bin" >> "$GITHUB_PATH"
+      - run: contract-lint --version
+      - run: npm install --no-audit --no-fund
+      - run: node --test test/integration.mjs
