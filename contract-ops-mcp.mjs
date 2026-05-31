@@ -20,7 +20,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { execFile } from "node:child_process";
 import { resolve, sep } from "node:path";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.2";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {
@@ -120,9 +120,9 @@ const TOOLDEFS = [
   },
   {
     name: "review_nda",
-    description: "Review an NDA against a house playbook — deterministic scoring with evidence per finding. Returns the review report.",
+    description: "Review an NDA against a house playbook — deterministic scoring with evidence per finding. Returns the structured review report (decision, risk_score, findings with evidence).",
     inputSchema: { type: "object", properties: { file: str("Path to the NDA."), playbook: str("Path to the house playbook JSON (optional).") }, required: ["file"], additionalProperties: false },
-    handler: (a) => cli("nda-review", ["review", "--file", safePath(a.file, "file"), ...(a.playbook ? ["--playbook", safePath(a.playbook, "playbook")] : []), "--why"]),
+    handler: (a) => cli("nda-review", ["review", "--file", safePath(a.file, "file"), ...(a.playbook ? ["--playbook", safePath(a.playbook, "playbook")] : []), "--json", "--why"]),
   },
   {
     name: "template_vault_find",

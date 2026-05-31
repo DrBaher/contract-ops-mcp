@@ -28,6 +28,13 @@ try {
 } catch { /* not installed — tests below skip */ }
 const skip = lintAvailable ? false : "contract-lint not installed (runs only in CI's integration job)";
 
+let ndaAvailable = false;
+try {
+  execFileSync("nda-review-cli", ["--version"], { stdio: "ignore" });
+  ndaAvailable = true;
+} catch { /* not installed — review_nda test skips */ }
+const skipNda = ndaAvailable ? false : "nda-review-cli not installed (runs only in CI's integration job)";
+
 // One contract with two known defects: a leftover placeholder and a
 // cross-reference to a section that doesn't exist.
 const BASE = mkdtempSync(join(tmpdir(), "comcp-int-"));
@@ -74,6 +81,54 @@ test("lint_contract runs the real CLI and returns structured findings", { skip }
   const rules = new Set(lint.findings.map((f) => f.rule));
   assert.ok(rules.has("placeholder"), "should flag the leftover placeholder");
   assert.ok(rules.has("broken-xref"), "should flag the broken cross-reference");
+  await client.close();
+});
+
+test("review_nda runs the real CLI with --json --why and returns a structured report", { skip: skipNda }, async () => {
+  // Self-contained fixtures: a minimal house playbook + an NDA with a known
+  // high-severity non-solicit clause. Asserts the new parsed-JSON contract
+  // (decision + risk_score + findings with per-finding evidence from --why),
+  // not the old free-text behavior.
+  const PLAYBOOK = "house-playbook.json";
+  writeFileSync(
+    join(BASE, PLAYBOOK),
+    JSON.stringify({
+      version: "0.1.0",
+      org_name: "Test Org",
+      policy: [
+        {
+          clause: "non_solicit_non_compete",
+          preferred_position: "NDA should avoid hidden non-compete/non-solicit obligations unless explicitly negotiated.",
+          red_flags: ["embedded non-compete", "overbroad non-solicit"],
+          keywords: ["non-solicit", "non-compete", "solicit"],
+        },
+      ],
+    }),
+  );
+  const NDA = "nda.txt";
+  writeFileSync(
+    join(BASE, NDA),
+    "MUTUAL NON-DISCLOSURE AGREEMENT\n\n" +
+      "This Agreement is between Acme Corp and Beta LLC.\n\n" +
+      "1. Confidential Information. Each party may disclose confidential information.\n" +
+      "2. Non-solicitation. Neither party shall solicit the other's employees for 5 years.\n",
+  );
+
+  const client = await connect();
+  const res = await client.callTool({ name: "review_nda", arguments: { file: NDA, playbook: PLAYBOOK } });
+  assert.ok(!res.isError, res.content[0].text);
+  const data = JSON.parse(res.content[0].text);
+  assert.equal(typeof data.exitCode, "number");
+  const review = data.result;
+  assert.ok(review && typeof review === "object", "review_nda must return parsed JSON, not free text");
+  assert.equal(typeof review.decision, "string", "structured decision");
+  assert.equal(typeof review.risk_score, "number", "structured risk_score");
+  assert.ok(Array.isArray(review.findings), "structured findings array");
+  // --why must enrich each finding with explainability evidence.
+  assert.equal(review.explainability_mode, true, "--why should set explainability_mode");
+  const solicit = review.findings.find((f) => f.clause === "non_solicit_non_compete");
+  assert.ok(solicit, "should flag the non-solicit clause");
+  assert.ok(solicit.evidence && Array.isArray(solicit.evidence.triggered_phrases), "finding carries --why evidence");
   await client.close();
 });
 

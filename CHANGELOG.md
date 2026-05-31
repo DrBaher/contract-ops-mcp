@@ -4,6 +4,20 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.2 — 2026-05-31
+
+### Changed
+- `review_nda` now invokes `nda-review-cli review` with `--json` (plus `--why`) and
+  returns the parsed structured report (`decision`, `risk_score`, `findings` with
+  per-finding `evidence`) — matching the JSON contract of `extract_contract`,
+  `lint_contract`, and `compare_versions` instead of returning free text. Requires
+  `nda-review-cli >= 0.5.2`.
+
+### Tests / CI
+- Added a real-CLI integration test for `review_nda` (asserts the parsed-JSON shape and
+  `--why` explainability evidence); the CI integration job now installs
+  `nda-review-cli >= 0.5.2` alongside `contract-lint`.
+
 ## 0.1.1 — 2026-05-24
 
 ### Changed

@@ -27,11 +27,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: install contract-lint on PATH
+      - name: install contract-lint + nda-review-cli on PATH
         run: |
-          python -m venv /tmp/lintvenv
-          /tmp/lintvenv/bin/pip install -q contract-lint
-          echo "/tmp/lintvenv/bin" >> "$GITHUB_PATH"
+          python -m venv /tmp/clivenv
+          /tmp/clivenv/bin/pip install -q contract-lint "nda-review-cli>=0.5.2"
+          echo "/tmp/clivenv/bin" >> "$GITHUB_PATH"
       - run: contract-lint --version
+      - run: nda-review-cli --version
       - run: npm install --no-audit --no-fund
       - run: node --test test/integration.mjs

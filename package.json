@@ -1,6 +1,6 @@
 {
   "name": "contract-ops-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "One MCP server for the whole contract-ops CLI suite — connect once, drive all nine local-first CLIs (extract, draft, lint, compare, convert, review, vault) as agent tools. Signing stays human-gated.",
   "type": "module",
   "bin": {
