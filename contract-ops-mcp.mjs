@@ -46,6 +46,61 @@ function safePath(p, label = "path") {
   return r;
 }
 
+// `run`/`catalog` are escape hatches that pass args verbatim. They must NOT
+// become a way around the two guarantees the curated tools enforce:
+//   1. file-path args stay inside BASE_DIR (the safePath contract), and
+//   2. signing stays human-gated — never request-create / approve / sign.
+// Without these checks, e.g. run("extract", ["/etc/passwd","--json"]) or
+// run("sign", ["request","create",...]) would void the whole security model.
+
+// Reject any token that resolves to a path outside BASE_DIR. Non-path tokens
+// (subcommands, flags, values like "error" / "30d") resolve to a child of
+// BASE_DIR and pass untouched; only clear escapes (absolute paths, ../ that
+// climbs out) are rejected. Also checks the value half of --flag=value.
+function confineRunArg(arg) {
+  const candidates = arg.startsWith("-")
+    ? (arg.includes("=") ? [arg.slice(arg.indexOf("=") + 1)] : [])
+    : [arg];
+  for (const c of candidates) {
+    if (!c) continue;
+    const r = resolve(BASE_DIR, c);
+    if (r !== BASE_DIR && !r.startsWith(BASE_DIR + sep)) {
+      throw new Error(`run: argument "${arg}" escapes the allowed base dir (${BASE_DIR}); set CONTRACT_OPS_MCP_BASE_DIR to widen it`);
+    }
+  }
+  return arg;
+}
+
+// Subcommands/verbs that mutate signing state. The suite's contract is that
+// signing is driven only through sign-cli's own MCP with per-signer approval
+// tokens — never through this aggregator. If any of these appears in a `run`
+// invocation of the sign CLI, refuse and point at the gated path.
+const SIGN_MUTATION_VERBS = new Set([
+  "create", "run-email", "from-template", "send", "send-embedded", "sign-url",
+  "launch-embedded", "remind", "cancel", "bulk", "bulk-resend",
+  "approve", "sign", "decline", "reissue-token", "rotate-keys", "init",
+]);
+
+function assertNoSignMutation(cliKey, args) {
+  if (cliKey !== "sign") return;
+  const hit = args.find((a) => SIGN_MUTATION_VERBS.has(a));
+  if (hit) {
+    throw new Error(
+      `run: signing-mutation command "${hit}" is not allowed through contract-ops-mcp. ` +
+      `Signing stays human-gated — drive it through sign-cli's own MCP with a per-signer approval token.`,
+    );
+  }
+}
+
+// Derive a .pdf output path from a Word-document input. Strips a trailing
+// .docx/.doc (case-insensitive); if the input has neither extension, appends
+// .pdf rather than silently reusing the input path (which would tell the
+// converter to overwrite its own source).
+function derivePdfOutputPath(input) {
+  if (/\.docx?$/i.test(input)) return input.replace(/\.docx?$/i, ".pdf");
+  return `${input}.pdf`;
+}
+
 const tryJson = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
 // Run a CLI, no shell. Returns {notInstalled} | {code, stdout, stderr}.
@@ -60,7 +115,13 @@ function exec(bin, args, { input } = {}) {
         res({ code, stdout: stdout || "", stderr: stderr || "" });
       },
     );
-    if (input != null) { try { child.stdin.write(input); child.stdin.end(); } catch { /* ignore */ } }
+    if (input != null) {
+      // The child may exit (or fail to spawn) before stdin is writable; guard
+      // both the synchronous write and the async stream 'error'/EPIPE event so
+      // a broken pipe can't surface as an unhandled error and crash the server.
+      if (child.stdin) child.stdin.on("error", () => { /* ignore broken pipe */ });
+      try { child.stdin.write(input); child.stdin.end(); } catch { /* ignore */ }
+    }
   });
 }
 
@@ -116,7 +177,7 @@ const TOOLDEFS = [
     name: "convert_to_pdf",
     description: "Convert a Word document to PDF (needs a PDF backend such as LibreOffice on the host).",
     inputSchema: { type: "object", properties: { input: str("Path to the .docx."), output: str("Output .pdf path (optional).") }, required: ["input"], additionalProperties: false },
-    handler: (a) => cli("docx2pdf", [safePath(a.input, "input"), safePath(a.output || a.input.replace(/\.docx$/i, ".pdf"), "output"), "--json"]),
+    handler: (a) => cli("docx2pdf", [safePath(a.input, "input"), safePath(a.output || derivePdfOutputPath(a.input), "output"), "--json"]),
   },
   {
     name: "review_nda",
@@ -181,9 +242,16 @@ const TOOLDEFS = [
   },
   {
     name: "run",
-    description: "Escape hatch: run any suite CLI with raw arguments (no shell). For commands the curated tools don't cover. Call `catalog` first to learn the flags. Note: signing-mutation commands are intentionally not blocked here but remain the user's responsibility.",
+    description: "Escape hatch: run any suite CLI with raw arguments (no shell). For commands the curated tools don't cover. Call `catalog` first to learn the flags. File-path arguments are confined to the base dir, and signing-mutation commands (create/send/approve/sign/…) are refused — signing stays human-gated behind sign-cli's own MCP.",
     inputSchema: { type: "object", properties: { cli: { type: "string", enum: Object.keys(CLIS) }, args: { type: "array", items: { type: "string" }, description: "Arguments passed verbatim to the CLI." } }, required: ["cli", "args"], additionalProperties: false },
-    handler: (a) => { if (!CLIS[a.cli]) throw new Error(`unknown cli: ${a.cli}`); if (!Array.isArray(a.args)) throw new Error("args must be an array of strings"); return cli(a.cli, a.args.map(String)); },
+    handler: (a) => {
+      if (!CLIS[a.cli]) throw new Error(`unknown cli: ${a.cli}`);
+      if (!Array.isArray(a.args)) throw new Error("args must be an array of strings");
+      const args = a.args.map(String);
+      assertNoSignMutation(a.cli, args);
+      args.forEach(confineRunArg);
+      return cli(a.cli, args);
+    },
   },
   {
     name: "suite_status",
