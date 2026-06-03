@@ -4,6 +4,28 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.3 — 2026-06-03
+
+Security/robustness fixes from a follow-up source audit.
+
+### Security
+- **Human-gated signing is now enforced on every escape hatch.** The `run` escape hatch
+  previously passed arbitrary args verbatim to any CLI key — including `sign` — so
+  `run({cli:"sign", args:["request","create",…]})` / `["request","sign",…]` reached
+  sign-cli with no human gate. A default-deny read-only `sign` allowlist is now enforced
+  in the shared `cli()` shellout, so curated tools, `catalog`, and `run` all refuse any
+  lifecycle-mutating subcommand; a leading global value-flag can't smuggle a mutation past
+  the gate. (Allowlist reconciled against canonical sign-cli 0.6.5.)
+
+### Fixed
+- **Abnormal termination is no longer collapsed to exit 1.** A 180 s timeout, a signal
+  kill, and a 32 MiB `maxBuffer` overflow were all reported as `exitCode 1`,
+  indistinguishable from a genuine `exit(1)`. A pure, exported `classifyExec` now surfaces
+  `exitCode:null` plus a distinct marker (`timedOut`/`killed`/`maxBufferExceeded`) and sets
+  `isError`.
+- **`--` separator guard** added for the typed vault tools so a query/ref beginning with
+  `-` can't be parsed as a flag.
+
 ## 0.1.2 — 2026-05-31
 
 ### Changed
