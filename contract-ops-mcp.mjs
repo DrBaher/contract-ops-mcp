@@ -45,7 +45,10 @@ const BASE_DIR = resolve(process.env.CONTRACT_OPS_MCP_BASE_DIR || process.cwd())
 // become an unguarded signing path.
 //
 // Verb prefixes that are pure-read / verify-only per `sign --catalog json`
-// (sign-cli 0.6.0). Each entry matches the leading non-flag command tokens.
+// (reconciled against canonical sign-cli 0.6.5 on 2026-06-03: every entry below
+// still exists and is still read-only; no entry maps to a mutating or
+// secret-leaking command — notably `profile show` stays OFF this list).
+// Each entry matches the leading non-flag command tokens.
 const SIGN_READONLY_COMMANDS = [
   ["--catalog"],                  // machine-readable catalog (the catalog tool)
   ["--help"], ["--version"],
