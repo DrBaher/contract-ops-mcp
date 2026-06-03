@@ -37,6 +37,87 @@ const CLIS = {
 
 const BASE_DIR = resolve(process.env.CONTRACT_OPS_MCP_BASE_DIR || process.cwd());
 
+// Signing is HUMAN-GATED here: this server only exposes sign-cli's read/verify
+// operations, never request-create/send/sign/approve — those stay behind
+// sign-cli's own MCP + per-signer approval tokens (see README "Safety" +
+// AGENTS.md). The curated sign tools already pin fixed read-only commands; this
+// allowlist is the gate for the `run`/`catalog` escape hatches so they can't
+// become an unguarded signing path.
+//
+// Verb prefixes that are pure-read / verify-only per `sign --catalog json`
+// (sign-cli 0.6.0). Each entry matches the leading non-flag command tokens.
+const SIGN_READONLY_COMMANDS = [
+  ["--catalog"],                  // machine-readable catalog (the catalog tool)
+  ["--help"], ["--version"],
+  ["request", "verify-signed-pdf"],
+  ["request", "verify-receipt"],
+  ["request", "show"],
+  ["request", "list"],
+  ["request", "diff"],
+  ["request", "rerun-policy"],    // "Pure read — no state mutation"
+  ["audit", "show"],
+  ["audit", "verify"],
+  ["audit", "search"],
+  ["audit", "scan"],
+  ["audit", "anchors-list"],
+  ["audit", "verify-anchor"],
+  ["audit", "verify-chain-bundle"],
+  ["audit", "verify-head"],
+  ["pdf", "inspect"],
+  ["pdf", "detect-signature-field"],
+  ["pdf", "detect-date-field"],
+  ["pdf", "stamp", "verify"],     // "tamper checks"; note: bare `pdf stamp` writes a PDF and is NOT allowed
+  ["signer", "list"],
+  ["signer", "policy", "try"],    // offline tester, "without touching state"
+  ["signer", "policy", "lint"],
+  ["signer", "policy", "diff"],   // "Pure preview — never touches request state"
+  ["doctor", "providers"],
+  ["db", "backend"],
+  ["mcp", "tools"],
+  ["examples"],
+  ["completion"],
+];
+
+// Reject any `sign` invocation whose leading command tokens are not on the
+// read-only allowlist. Throws (surfaced as isError) so an agent gets a clear,
+// non-silent refusal. Leading flags (e.g. --provider local) are skipped over,
+// but a mutating subcommand anywhere after them is still caught because we
+// match the first non-flag token sequence.
+function assertSignReadOnly(args) {
+  const tokens = args.map(String);
+  // A leading "--flag value"? We need the first *command* token. Global flags
+  // like --provider/--profile/--verbose take a value; bare --catalog/--help do
+  // not. To stay safe we match against the full leading non-empty token list
+  // and accept iff some allowlisted prefix appears at the front after skipping
+  // recognised global value-flags.
+  const GLOBAL_VALUE_FLAGS = new Set(["--provider", "--strict-provider", "--profile", "--verbose"]);
+  const cmd = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.startsWith("-")) {
+      // standalone read-only flags are themselves allowlisted (e.g. --catalog)
+      if (t === "--catalog" || t === "--help" || t === "--version") { cmd.push(t); break; }
+      if (GLOBAL_VALUE_FLAGS.has(t)) { i++; continue; }   // skip flag + its value
+      continue;                                            // skip an unknown flag (no value assumed)
+    }
+    cmd.push(t);
+    // collect up to 3 command tokens (longest allowlist prefix is 3)
+    if (cmd.length >= 3) break;
+    // peek: if next token is a flag, the command is complete
+    if (i + 1 < tokens.length && tokens[i + 1].startsWith("-")) break;
+  }
+  const ok = SIGN_READONLY_COMMANDS.some((prefix) =>
+    prefix.length <= cmd.length && prefix.every((p, idx) => p === cmd[idx]));
+  if (!ok) {
+    const shown = cmd.length ? cmd.join(" ") : "(no command)";
+    throw new Error(
+      `signing is human-gated through this server: 'sign ${shown}' is not a read-only operation. ` +
+      `Only sign-cli's read/verify ops are reachable here (e.g. 'request verify-signed-pdf', ` +
+      `'request verify-receipt', 'audit show'). To create/send/sign a request, use sign-cli's own ` +
+      `MCP server with its per-signer approval tokens.`);
+  }
+}
+
 function safePath(p, label = "path") {
   if (typeof p !== "string" || !p) throw new Error(`${label} is required`);
   const r = resolve(BASE_DIR, p);
@@ -48,17 +129,41 @@ function safePath(p, label = "path") {
 
 const tryJson = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
-// Run a CLI, no shell. Returns {notInstalled} | {code, stdout, stderr}.
+// Classify an execFile callback (err, stdout, stderr) into our result shape.
+// Pure + exported so the timeout/signal/maxBuffer-vs-real-exit distinction is
+// unit-testable without spawning a 180s process.
+//   - real exit code N  → { exitCode: N }
+//   - timeout (SIGTERM kill) → { exitCode: null, timedOut: true, killed: "SIGTERM" }
+//   - other signal kill → { exitCode: null, killed: <signal> }
+//   - maxBuffer overflow → { exitCode: null, maxBufferExceeded: true }
+// Collapsing all of these to exitCode 1 (the old behavior) made a 180s timeout
+// indistinguishable from a genuine exit(1) I/O error.
+function classifyExec(err, stdout, stderr) {
+  if (err && (err.code === "ENOENT" || err.errno === -2)) return { notInstalled: true };
+  const out = { stdout: stdout || "", stderr: stderr || "" };
+  if (!err) { out.exitCode = 0; return out; }
+  if (err.killed || err.signal || typeof err.code !== "number") {
+    out.exitCode = null;
+    if (err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+      out.maxBufferExceeded = true;
+    } else {
+      if (err.killed && err.signal === "SIGTERM") out.timedOut = true; // execFile timeout kills with SIGTERM
+      if (err.signal) out.killed = err.signal;
+    }
+    out.error = err.message;
+  } else {
+    out.exitCode = err.code;
+  }
+  return out;
+}
+
+// Run a CLI, no shell. Returns {notInstalled} | {exitCode, stdout, stderr, ...}.
 function exec(bin, args, { input } = {}) {
   return new Promise((res) => {
     const child = execFile(
       bin, args,
       { cwd: BASE_DIR, timeout: 180000, maxBuffer: 32 * 1024 * 1024, env: process.env },
-      (err, stdout, stderr) => {
-        if (err && (err.code === "ENOENT" || err.errno === -2)) return res({ notInstalled: true });
-        const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
-        res({ code, stdout: stdout || "", stderr: stderr || "" });
-      },
+      (err, stdout, stderr) => res(classifyExec(err, stdout, stderr)),
     );
     if (input != null) { try { child.stdin.write(input); child.stdin.end(); } catch { /* ignore */ } }
   });
@@ -69,15 +174,26 @@ const result = (text, isError = false) => ({ content: [{ type: "text", text }], 
 // Run a suite CLI and shape stdout into JSON (parsed when the tool used --json).
 async function cli(key, args, { input } = {}) {
   const c = CLIS[key];
+  // Enforce the documented human-gated-signing guarantee on EVERY path that
+  // shells out to sign — curated tools, catalog, and the `run` escape hatch.
+  if (key === "sign") assertSignReadOnly(args);
   const r = await exec(c.bin, args, { input });
   if (r.notInstalled) return result(`${c.bin} is not installed. Install it:  ${c.install}`, true);
   const parsed = tryJson(r.stdout);
-  const out = { exitCode: r.code };
+  const out = { exitCode: r.exitCode };   // null when the child was killed (timeout/signal/maxBuffer)
   if (parsed !== null) out.result = parsed;
   else if (r.stdout.trim()) out.output = r.stdout.trim();
   if (r.stderr.trim()) out.stderr = r.stderr.trim();
+  // Surface abnormal-termination markers distinctly from a real exit code so an
+  // agent can tell a 180s timeout / signal kill / maxBuffer overflow apart from
+  // a genuine exit(1) I/O error (they're no longer both exitCode 1).
+  if (r.timedOut) out.timedOut = true;
+  if (r.killed) out.killed = r.killed;
+  if (r.maxBufferExceeded) out.maxBufferExceeded = true;
+  if (r.error && r.exitCode === null) out.error = r.error;
   // Non-zero is meaningful (findings/gates), not necessarily an error — surface it, don't throw.
-  return result(JSON.stringify(out, null, 2));
+  // A killed run (exitCode null) IS an error: mark it so callers branch correctly.
+  return result(JSON.stringify(out, null, 2), r.exitCode === null);
 }
 
 const str = (description) => ({ type: "string", description });
@@ -128,19 +244,19 @@ const TOOLDEFS = [
     name: "template_vault_find",
     description: "Search the template vault by category, tag, jurisdiction, or keyword. Read-only.",
     inputSchema: { type: "object", properties: { query: str("Search query.") }, required: ["query"], additionalProperties: false },
-    handler: (a) => cli("template-vault", ["find", String(a.query), "--json"]),
+    handler: (a) => cli("template-vault", ["find", "--json", "--", String(a.query)]),
   },
   {
     name: "template_vault_get",
     description: "Resolve and return a versioned template's text by reference (e.g. nda/house-mutual). Read-only.",
     inputSchema: { type: "object", properties: { ref: str("Template reference: category/name[@version].") }, required: ["ref"], additionalProperties: false },
-    handler: (a) => cli("template-vault", ["get", String(a.ref)]),
+    handler: (a) => cli("template-vault", ["get", "--", String(a.ref)]),
   },
   {
     name: "contract_vault_query",
     description: "Query the register of signed contracts (read-only): list | find | get | show | stats | history.",
     inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "find", "get", "show", "stats", "history"], description: "Read-only action." }, arg: str("Argument for find/get/show/history (query or deal id).") }, required: ["action"], additionalProperties: false },
-    handler: (a) => cli("contract-vault", [a.action, ...(a.arg ? [String(a.arg)] : []), "--json"]),
+    handler: (a) => cli("contract-vault", [a.action, "--json", ...(a.arg ? ["--", String(a.arg)] : [])]),
   },
   {
     name: "contract_vault_due",
@@ -181,7 +297,7 @@ const TOOLDEFS = [
   },
   {
     name: "run",
-    description: "Escape hatch: run any suite CLI with raw arguments (no shell). For commands the curated tools don't cover. Call `catalog` first to learn the flags. Note: signing-mutation commands are intentionally not blocked here but remain the user's responsibility.",
+    description: "Escape hatch: run any suite CLI with raw arguments (no shell). For commands the curated tools don't cover. Call `catalog` first to learn the flags. Note: signing stays human-gated — only sign-cli's read/verify subcommands are reachable here; request-create/send/sign/approve are rejected and must go through sign-cli's own MCP with its per-signer approval tokens.",
     inputSchema: { type: "object", properties: { cli: { type: "string", enum: Object.keys(CLIS) }, args: { type: "array", items: { type: "string" }, description: "Arguments passed verbatim to the CLI." } }, required: ["cli", "args"], additionalProperties: false },
     handler: (a) => { if (!CLIS[a.cli]) throw new Error(`unknown cli: ${a.cli}`); if (!Array.isArray(a.args)) throw new Error("args must be an array of strings"); return cli(a.cli, a.args.map(String)); },
   },
@@ -228,4 +344,4 @@ async function main() {
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) main().catch((e) => { process.stderr.write(`fatal: ${e}\n`); process.exit(1); });
 
-export { TOOLS, HANDLERS, CLIS, safePath };
+export { TOOLS, HANDLERS, CLIS, safePath, classifyExec, assertSignReadOnly, SIGN_READONLY_COMMANDS };

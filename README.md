@@ -45,7 +45,7 @@ The curated set and `catalog`/`run` are **discovery-driven** — they ride the s
 
 ## Safety
 
-- **Signing is human-gated.** Only sign-cli's **read/verify** operations are exposed (`verify_signature`, `verify_receipt`, `audit_show`) — never request-create or sign. Those stay behind [sign-cli](https://github.com/DrBaher/sign-cli)'s own MCP server with its per-signer approval tokens, so this server can't become an unguarded signing path.
+- **Signing is human-gated.** Only sign-cli's **read/verify** operations are exposed (`verify_signature`, `verify_receipt`, `audit_show`) — never request-create or sign. This is enforced: the `run`/`catalog` escape hatches reject any `sign` subcommand outside a read-only allowlist, so request-create/send/sign/approve can't be reached here. Those stay behind [sign-cli](https://github.com/DrBaher/sign-cli)'s own MCP server with its per-signer approval tokens, so this server can't become an unguarded signing path.
 - **Filesystem lockdown.** File-path arguments to the curated tools are confined to `CONTRACT_OPS_MCP_BASE_DIR` (default: the working directory). Set it to widen the sandbox.
 - **No shell.** CLIs are invoked with `execFile` (no shell interpolation).
 
