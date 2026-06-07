@@ -20,7 +20,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { execFile } from "node:child_process";
 import { resolve, sep } from "node:path";
 
-export const VERSION = "0.1.3";
+export const VERSION = "0.1.4";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {

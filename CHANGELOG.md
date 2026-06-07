@@ -4,6 +4,15 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.4 — 2026-06-07
+
+### Added
+- **Listed on the official MCP Registry.** Added `server.json` + the `mcpName`
+  field (`io.github.DrBaher/contract-ops-mcp`) so agent runtimes can discover the
+  whole suite from one entry. The release workflow now publishes `server.json` to
+  the registry via GitHub OIDC after the npm publish, so it stays current. No
+  runtime/API changes from 0.1.3.
+
 ## 0.1.3 — 2026-06-03
 
 Security/robustness fixes from a follow-up source audit.

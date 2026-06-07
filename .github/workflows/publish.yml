@@ -37,3 +37,19 @@ jobs:
           fi
       - run: npm publish --provenance --access public
         # No NODE_AUTH_TOKEN — npm mints a short-lived OIDC token via id-token:write.
+
+  publish-mcp-registry:
+    # Publishes server.json to the official MCP Registry so discovery surfaces
+    # track the current version. GitHub OIDC proves io.github.DrBaher ownership —
+    # no secrets. Runs after npm publish (the registry validates the published
+    # npm tarball's mcpName against the server name).
+    needs: [publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Login to MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json
+        run: ./mcp-publisher publish
