@@ -4,6 +4,13 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.5 — 2026-06-07
+
+### Fixed
+- Shorten `server.json` `description` to ≤100 chars (MCP Registry validation
+  limit) so the registry publish succeeds. 0.1.4 published to npm but failed the
+  registry step on length; no runtime change.
+
 ## 0.1.4 — 2026-06-07
 
 ### Added

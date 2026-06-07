@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.DrBaher/contract-ops-mcp",
-  "description": "One MCP server for the whole contract-ops CLI suite — drive all nine local-first CLIs (extract, draft, lint, compare, convert, review, the vaults, and human-gated signing) as agent tools.",
+  "description": "One MCP server for the contract-ops suite: all nine local-first CLIs as agent tools.",
   "repository": {
     "url": "https://github.com/DrBaher/contract-ops-mcp",
     "source": "github"
   },
-  "version": "0.1.4",
+  "version": "0.1.5",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "contract-ops-mcp",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "transport": {
         "type": "stdio"
       }
