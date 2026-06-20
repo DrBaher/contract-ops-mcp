@@ -19,8 +19,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { execFile } from "node:child_process";
 import { resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-export const VERSION = "0.1.5";
+export const VERSION = "0.1.6";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {
@@ -344,7 +346,20 @@ async function main() {
   process.stderr.write(`contract-ops-mcp ${VERSION} ready — base dir: ${BASE_DIR}\n`);
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
-if (isMain) main().catch((e) => { process.stderr.write(`fatal: ${e}\n`); process.exit(1); });
+// Are we the executed entry point? Compare realpaths on both sides so launching
+// through the npm bin symlink (node_modules/.bin/contract-ops-mcp, which is how
+// MCP clients and npx invoke us) still matches — argv[1] is the symlink while
+// import.meta.url is the realpath Node resolved. A naive string compare misses
+// that and the server exits 0 silently. realpathSync also throws if the path is
+// gone, so guard it.
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+if (isMainModule()) main().catch((e) => { process.stderr.write(`fatal: ${e}\n`); process.exit(1); });
 
 export { TOOLS, HANDLERS, CLIS, safePath, classifyExec, assertSignReadOnly, SIGN_READONLY_COMMANDS };

@@ -4,6 +4,23 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.6 — 2026-06-20
+
+### Fixed
+- **Server now starts when launched through the npm bin symlink** (`npx
+  contract-ops-mcp`, `node_modules/.bin/contract-ops-mcp` — how every MCP client
+  invokes it). The "is this the main module?" guard compared `import.meta.url`
+  against a raw `file://${process.argv[1]}` string; through a symlink `argv[1]`
+  is the link path while `import.meta.url` is the realpath, so the guard was
+  false, `main()` never ran, and the process exited 0 silently. Now both sides
+  are resolved with `realpathSync`/`fileURLToPath` before comparing. Running the
+  module by its real path already worked and still does.
+
+### Tests
+- Added `test/bin.mjs`, which execs the resolved **bin symlink** (not just the
+  module path) and asserts the server announces readiness — the launch path no
+  existing test exercised, which is how this shipped.
+
 ## 0.1.5 — 2026-06-07
 
 ### Fixed
