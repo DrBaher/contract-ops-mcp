@@ -18,11 +18,12 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { execFile } from "node:child_process";
-import { resolve, sep } from "node:path";
-import { realpathSync } from "node:fs";
+import { resolve, sep, join } from "node:path";
+import { realpathSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "0.1.6";
+export const VERSION = "0.1.7";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {
@@ -47,9 +48,12 @@ const BASE_DIR = resolve(process.env.CONTRACT_OPS_MCP_BASE_DIR || process.cwd())
 // become an unguarded signing path.
 //
 // Verb prefixes that are pure-read / verify-only per `sign --catalog json`
-// (reconciled against canonical sign-cli 0.6.5 on 2026-06-03: every entry below
-// still exists and is still read-only; no entry maps to a mutating or
-// secret-leaking command — notably `profile show` stays OFF this list).
+// (reconciled against sign-cli 0.6.0 on 2026-07-13 — the version the linked
+// `sign` bin actually builds; the earlier "0.6.5" note was aspirational, the
+// installed CLI reports 0.6.0. Every entry below still exists in 0.6.0 and its
+// catalog summary still declares it read-only — several say so explicitly
+// ("Pure read — no state mutation", "no audit events written", "never touches
+// request state"). `profile show` stays OFF this list.)
 // Each entry matches the leading non-flag command tokens.
 const SIGN_READONLY_COMMANDS = [
   ["--catalog"],                  // machine-readable catalog (the catalog tool)
@@ -83,13 +87,50 @@ const SIGN_READONLY_COMMANDS = [
   ["completion"],
 ];
 
+// Flags that mutate state, sign, transmit, rotate keys, or auto-confirm a
+// mutation. Even on an otherwise read-only subcommand these turn a read into a
+// write, so any sign invocation carrying one is refused — closing the
+// "allowlisted subcommand + mutating flag" gap.
+//
+// This is a DENYLIST, not a fail-closed read-flag allowlist, and that is a
+// deliberate, catalog-grounded choice (verified against sign 0.6.0 on
+// 2026-07-13): sign-cli's `--catalog json` UNDER-REPORTS flags — e.g.
+// `request verify-signed-pdf` requires `--request-id` and `--path` yet the
+// catalog and `--help` both list it as flagless — so an allowlist built from
+// the catalog would falsely reject the curated `verify_signature` tool's own
+// `--path`. The CLI also silently ignores unrecognized flags, so an unknown
+// flag is not reliably dangerous; the sound thing to block is the known
+// mutating/signing verbs below. `--out`/`--output` are intentionally NOT here —
+// a read that writes its report to a file is not a state mutation, and the
+// artifact-writing subcommands (`request receipt`, `pdf stamp`, `audit anchor`,
+// …) are already blocked at the subcommand level.
+const SIGN_MUTATING_FLAGS = new Set([
+  "--apply", "--repair", "--fix", "--force", "-f", "--write", "--save",
+  "--set", "--overwrite", "--rotate", "--rotate-keys", "--backup", "--init",
+  "--delete", "--remove", "--prune", "--approve", "--decline", "--send",
+  "--sign", "--anchor", "--timestamp", "--token", "--yes", "-y", "--confirm",
+  "--commit", "--emit", "--reissue",
+]);
+
 // Reject any `sign` invocation whose leading command tokens are not on the
-// read-only allowlist. Throws (surfaced as isError) so an agent gets a clear,
-// non-silent refusal. Leading flags (e.g. --provider local) are skipped over,
-// but a mutating subcommand anywhere after them is still caught because we
-// match the first non-flag token sequence.
+// read-only allowlist, OR that carries a state-mutating flag. Throws (surfaced
+// as isError) so an agent gets a clear, non-silent refusal. Leading flags (e.g.
+// --provider local) are skipped over for command classification, but a mutating
+// subcommand anywhere after them is still caught because we match the first
+// non-flag token sequence — and a mutating flag anywhere is caught by the scan
+// below regardless of position.
 function assertSignReadOnly(args) {
   const tokens = args.map(String);
+
+  // Flag scan first: a mutating flag on ANY sign invocation (even an allowlisted
+  // read subcommand) is refused. Handles both `--flag value` and `--flag=value`.
+  const mutating = tokens.find((t) => t.startsWith("-") && SIGN_MUTATING_FLAGS.has(t.split("=")[0]));
+  if (mutating) {
+    throw new Error(
+      `signing is human-gated through this server: the '${mutating.split("=")[0]}' flag mutates or transmits state and is not reachable here. ` +
+      `Only sign-cli's read/verify ops are exposed. To create/send/sign/approve a request, use sign-cli's own ` +
+      `MCP server with its per-signer approval tokens.`);
+  }
   // A leading "--flag value"? We need the first *command* token. Global flags
   // like --provider/--profile/--verbose take a value; bare --catalog/--help do
   // not. To stay safe we match against the full leading non-empty token list
@@ -228,9 +269,21 @@ const TOOLDEFS = [
     description: "Fill placeholders in a markdown/.docx template with parameter values (deterministic; no LLM). Returns the filled document on stdout.",
     inputSchema: { type: "object", properties: { template: str("Path to the template."), params: { type: "object", description: "Parameter values (snake_case keys), passed as JSON.", additionalProperties: true } }, required: ["template"], additionalProperties: false },
     handler: async (a) => {
-      const args = [safePath(a.template, "template"), "--no-llm"];
-      if (a.params && Object.keys(a.params).length) return cli("draft", [...args, "--params", "-"], { input: JSON.stringify(a.params) }).catch(() => cli("draft", args));
-      return cli("draft", args);
+      const templatePath = safePath(a.template, "template");
+      if (!a.params || !Object.keys(a.params).length) return cli("draft", [templatePath, "--no-llm"]);
+      // draft-cli reads params from a JSON *file* (`--params FILE`); it does not
+      // accept `-`/stdin. Write a private temp file rather than the
+      // `--<key> value` flag form — a template param named `output`, `syntax`,
+      // `json`, etc. would otherwise collide with draft's own flags. Clean up
+      // regardless of outcome.
+      const dir = mkdtempSync(join(tmpdir(), "comcp-fill-"));
+      try {
+        const pfile = join(dir, "params.json");
+        writeFileSync(pfile, JSON.stringify(a.params));
+        return await cli("draft", [templatePath, "--no-llm", "--params", pfile]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     },
   },
   {

@@ -35,6 +35,13 @@ try {
 } catch { /* not installed — review_nda test skips */ }
 const skipNda = ndaAvailable ? false : "nda-review-cli not installed (runs only in CI's integration job)";
 
+let draftAvailable = false;
+try {
+  execFileSync("draft", ["--version"], { stdio: "ignore" });
+  draftAvailable = true;
+} catch { /* not installed — fill_template test skips */ }
+const skipDraft = draftAvailable ? false : "draft not installed (runs only in CI's integration job)";
+
 // One contract with two known defects: a leftover placeholder and a
 // cross-reference to a section that doesn't exist.
 const BASE = mkdtempSync(join(tmpdir(), "comcp-int-"));
@@ -81,6 +88,31 @@ test("lint_contract runs the real CLI and returns structured findings", { skip }
   const rules = new Set(lint.findings.map((f) => f.rule));
   assert.ok(rules.has("placeholder"), "should flag the leftover placeholder");
   assert.ok(rules.has("broken-xref"), "should flag the broken cross-reference");
+  await client.close();
+});
+
+test("fill_template passes JSON params to the real draft CLI and returns the filled doc", { skip: skipDraft }, async () => {
+  // Regression: the handler used `--params -` (stdin), which draft-cli 0.9.0
+  // rejects ("params file not found: -"). It must hand params to draft as a
+  // JSON file so a filled document actually comes back.
+  const TEMPLATE = "nda-template.md";
+  writeFileSync(
+    join(BASE, TEMPLATE),
+    "NON-DISCLOSURE AGREEMENT\n\n" +
+      "This NDA is between [Client Name] and Acme Corp, effective [Effective Date].\n",
+  );
+  const client = await connect();
+  const res = await client.callTool({
+    name: "fill_template",
+    arguments: { template: TEMPLATE, params: { client_name: "Beta LLC", effective_date: "2026-08-01" } },
+  });
+  assert.ok(!res.isError, res.content[0].text);
+  const data = JSON.parse(res.content[0].text);
+  assert.equal(data.exitCode, 0, "draft should fill cleanly");
+  const filled = data.output || "";
+  assert.match(filled, /Beta LLC/, "client_name must be substituted");
+  assert.match(filled, /2026-08-01/, "effective_date must be substituted");
+  assert.doesNotMatch(filled, /\[Client Name\]|\[Effective Date\]/, "no placeholders should remain");
   await client.close();
 });
 

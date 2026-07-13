@@ -109,6 +109,24 @@ test("assertSignReadOnly: lifecycle-mutating ops are blocked", () => {
   blocked(["audit", "timestamp"]);
 });
 
+test("assertSignReadOnly: a mutating flag on an allowlisted read subcommand is blocked", () => {
+  // The gap: the command prefix is read-only, but a flag turns it into a write.
+  blocked(["request", "show", "--request-id", "r", "--repair"]);
+  blocked(["audit", "verify", "--request-id", "r", "--apply"]);
+  blocked(["signer", "policy", "try", "--spec", "x", "--write"]);
+  blocked(["request", "rerun-policy", "--request-id", "r", "--force"]);
+  blocked(["request", "list", "-y"]);
+  blocked(["audit", "scan", "--set=foo"]);            // --flag=value form
+  blocked(["request", "show", "--request-id", "r", "--token", "t"]);
+  blocked(["request", "show", "--anchor"]);
+});
+
+test("assertSignReadOnly: benign flags on read subcommands still pass", () => {
+  allowed(["request", "rerun-policy", "--request-id", "r"]);
+  allowed(["audit", "search", "--request-id", "r", "--json"]);
+  allowed(["request", "show", "--request-id", "r"]);
+});
+
 test("assertSignReadOnly: a leading global value-flag cannot smuggle a mutation past the gate", () => {
   blocked(["--provider", "local", "request", "create", "--title", "t"]);
   blocked(["--profile", "prod", "sign", "--request-id", "r", "--token", "t"]);

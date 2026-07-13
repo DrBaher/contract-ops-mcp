@@ -4,6 +4,30 @@ All notable changes to **contract-ops-mcp** are documented here. The format foll
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to semantic
 versioning once it leaves 0.x.
 
+## 0.1.7 — 2026-07-13
+
+### Fixed
+- **`fill_template` now works with the installed draft-cli.** The handler passed
+  parameters as `--params -` (JSON on stdin), which `draft-cli` 0.9.0 rejects
+  (`params file not found: -`), leaving the entire authoring path broken (and the
+  `.catch()` fallback was dead code, since the CLI wrapper returns errors rather
+  than throwing). Params are now written to a private temp JSON file passed as
+  `--params <file>` — chosen over `--<key> value` flags, which would collide with
+  draft's own flags for a template param named `output`/`syntax`/`json`/etc. The
+  temp dir is cleaned up in a `finally`.
+
+### Security
+- **The human-gated-signing guard now inspects flags, not just subcommands.**
+  `assertSignReadOnly` allowlisted read-only sign *subcommands* but silently
+  skipped *flags*, so a state-mutating flag on an otherwise read-only subcommand
+  (e.g. `request show --request-id r --apply`) would pass the gate. A
+  `SIGN_MUTATING_FLAGS` denylist (`--apply`, `--sign`, `--send`, `--approve`,
+  `--token`, `--anchor`, key rotation, …) is now scanned across the whole argv
+  and refuses any sign invocation carrying one. (A denylist rather than a
+  fail-closed read-flag allowlist because `sign --catalog json` under-reports
+  flags — `request verify-signed-pdf`'s required `--path` appears in neither the
+  catalog nor `--help`.)
+
 ## 0.1.6 — 2026-06-20
 
 ### Fixed
