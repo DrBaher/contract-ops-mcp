@@ -154,7 +154,7 @@ test("negotiation tools are exposed with well-formed schemas", () => {
     assert.equal(byName[n].inputSchema.additionalProperties, false, `${n} must forbid extra props`);
     assert.ok(byName[n].description.length > 20, `${n} needs a real description`);
   }
-  // the four signing acts must be described as commitments (so the harness/agent knows)
+  // the three signing acts must be described as commitments (so the harness/agent knows)
   for (const n of ["negotiate_init", "negotiate_counter", "negotiate_accept"]) {
     assert.match(byName[n].description, /sign/i, `${n} should flag that it signs`);
   }
