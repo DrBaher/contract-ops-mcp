@@ -23,7 +23,7 @@ import { realpathSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "0.1.7";
+export const VERSION = "0.2.0";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {
