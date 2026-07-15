@@ -23,7 +23,7 @@ import { realpathSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 // bin + how to install it, per CLI key the tools/escape-hatches reference.
 const CLIS = {
@@ -440,6 +440,80 @@ const TOOLDEFS = [
     inputSchema: { type: "object", properties: { ref: str("Template reference: category/name[@version].") }, required: ["ref"], additionalProperties: false },
     handler: (a) => cli("template-vault", ["get", "--", String(a.ref)]),
   },
+  // Template vault — browse, inspect, and compose. Refs are vault references
+  // (category/name[@version]), NOT file paths, so they are not safePath'd.
+  {
+    name: "template_vault_list",
+    description: "List templates in the vault, optionally filtered by category / tag / jurisdiction. Read-only.",
+    inputSchema: { type: "object", properties: { category: str("Filter by category."), tag: str("Filter by tag."), jurisdiction: str("Filter by jurisdiction.") }, additionalProperties: false },
+    handler: (a) => cli("template-vault", ["list", "--json", ...(a.category ? ["--category", String(a.category)] : []), ...(a.tag ? ["--tag", String(a.tag)] : []), ...(a.jurisdiction ? ["--jurisdiction", String(a.jurisdiction)] : [])]),
+  },
+  {
+    name: "template_vault_info",
+    description: "Show metadata for a template (category, tags, jurisdiction, versions). Read-only.",
+    inputSchema: { type: "object", properties: { ref: str("Template reference.") }, required: ["ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["info", "--json", String(a.ref)]),
+  },
+  {
+    name: "template_vault_diff",
+    description: "Unified diff between two versions of one template. Read-only.",
+    inputSchema: { type: "object", properties: { ref: str("Template reference."), version_a: str("First version."), version_b: str("Second version.") }, required: ["ref", "version_a", "version_b"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["diff", String(a.ref), String(a.version_a), String(a.version_b)]),
+  },
+  {
+    name: "template_vault_history",
+    description: "Chronological timeline for a template: versions, swaps, and amendments. Read-only.",
+    inputSchema: { type: "object", properties: { ref: str("Template reference.") }, required: ["ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["history", "--json", String(a.ref)]),
+  },
+  {
+    name: "template_vault_clauses",
+    description: "List the clauses detected in a template. Read-only.",
+    inputSchema: { type: "object", properties: { ref: str("Template reference.") }, required: ["ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["clauses", String(a.ref)]),
+  },
+  {
+    name: "template_vault_clause_library",
+    description: "Find clauses that repeat across the vault (a reusable clause library). Read-only.",
+    inputSchema: { type: "object", properties: { threshold: str("Similarity threshold (0-1).") }, additionalProperties: false },
+    handler: (a) => cli("template-vault", ["clause-library", ...(a.threshold ? ["--threshold", String(a.threshold)] : [])]),
+  },
+  {
+    name: "template_vault_compare_clauses",
+    description: "Compare clauses between two templates (optionally one named clause). Read-only.",
+    inputSchema: { type: "object", properties: { a: str("First template reference."), b: str("Second template reference."), clause: str("Optional clause name to compare.") }, required: ["a", "b"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["compare-clauses", ...(a.clause ? ["--clause", String(a.clause)] : []), String(a.a), String(a.b)]),
+  },
+  {
+    name: "template_vault_stats",
+    description: "Vault dashboard: template counts, coverage, and last activity. Read-only.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: () => cli("template-vault", ["stats", "--json"]),
+  },
+  {
+    name: "template_vault_verify",
+    description: "Content-level sha256 integrity check of the vault. Read-only (never rewrites hashes).",
+    inputSchema: { type: "object", properties: { strict: { type: "boolean", description: "Fail on any mismatch." } }, additionalProperties: false },
+    handler: (a) => cli("template-vault", ["verify", ...(a.strict ? ["--strict"] : [])]),
+  },
+  {
+    name: "template_vault_compose",
+    description: "Fork a template into a new derived template in the vault. Writes a new versioned template.",
+    inputSchema: { type: "object", properties: { base: str("Base template reference to fork from."), as_ref: str("New template reference to create.") }, required: ["base", "as_ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["compose", "--why", "--base", String(a.base), "--as", String(a.as_ref)]),
+  },
+  {
+    name: "template_vault_swap",
+    description: "Replace one clause in a template with the same clause from another template. Writes a new version.",
+    inputSchema: { type: "object", properties: { target: str("Template reference to modify."), clause: str("Clause name to replace."), from_ref: str("Template reference to take the clause from.") }, required: ["target", "clause", "from_ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["swap", "--why", "--clause", String(a.clause), "--from", String(a.from_ref), String(a.target)]),
+  },
+  {
+    name: "template_vault_export",
+    description: "Export a template to another format (e.g. .docx) at a workspace path.",
+    inputSchema: { type: "object", properties: { ref: str("Template reference."), as: str("Format, e.g. docx."), output: str("Output file path.") }, required: ["ref"], additionalProperties: false },
+    handler: (a) => cli("template-vault", ["export", ...(a.as ? ["--as", String(a.as)] : []), ...(a.output ? ["--output", safePath(a.output, "output")] : []), String(a.ref)]),
+  },
   {
     name: "contract_vault_query",
     description: "Query the register of signed contracts (read-only): list | find | get | show | stats | history.",
@@ -457,6 +531,71 @@ const TOOLDEFS = [
     description: "Renewal-exposure analysis: missed/imminent auto-renewal notice deadlines and expirations.",
     inputSchema: { type: "object", properties: { within: str("Window, e.g. 30d (default 30d).") }, additionalProperties: false },
     handler: (a) => cli("contract-vault", ["risk", ...(a.within ? ["--within", String(a.within)] : []), "--json"]),
+  },
+  // Contract vault — obligations, reminders, and register lifecycle.
+  {
+    name: "contract_vault_obligations",
+    description: "Project upcoming date/obligation actions from the register. Read-only.",
+    inputSchema: { type: "object", properties: {
+      within: str("Window, e.g. 90d."),
+      status: { type: "string", enum: ["open", "done", "waived", "all"], description: "Filter by status." },
+      type: str("Filter by obligation type."), owner: str("Filter by owner."), as_of: str("As-of date (YYYY-MM-DD)."),
+    }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["obligations", "--json", ...(a.within ? ["--within", String(a.within)] : []), ...(a.status ? ["--status", a.status] : []), ...(a.type ? ["--type", String(a.type)] : []), ...(a.owner ? ["--owner", String(a.owner)] : []), ...(a.as_of ? ["--as-of", String(a.as_of)] : [])]),
+  },
+  {
+    name: "contract_vault_remind",
+    description: "Obligations whose reminder window is open right now — a digest for agents/cron. Read-only.",
+    inputSchema: { type: "object", properties: { as_of: str("As-of date (YYYY-MM-DD)."), status: { type: "string", enum: ["open", "done", "waived", "all"], description: "Filter by status." }, type: str("Filter by type."), owner: str("Filter by owner.") }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["remind", "--json", ...(a.as_of ? ["--as-of", String(a.as_of)] : []), ...(a.status ? ["--status", a.status] : []), ...(a.type ? ["--type", String(a.type)] : []), ...(a.owner ? ["--owner", String(a.owner)] : [])]),
+  },
+  {
+    name: "contract_vault_at_risk",
+    description: "Renewal exposure: missed / imminent auto-renewal notice deadlines and expirations. Read-only.",
+    inputSchema: { type: "object", properties: { within: str("Window, e.g. 30d."), as_of: str("As-of date.") }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["at-risk", "--json", ...(a.within ? ["--within", String(a.within)] : []), ...(a.as_of ? ["--as-of", String(a.as_of)] : [])]),
+  },
+  {
+    name: "contract_vault_review",
+    description: "List register fields needing review (unidentified / LLM-derived / low-confidence). Read-only.",
+    inputSchema: { type: "object", properties: { threshold: str("Confidence threshold (0-1).") }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["review", "--json", ...(a.threshold ? ["--threshold", String(a.threshold)] : [])]),
+  },
+  {
+    name: "contract_vault_verify",
+    description: "Integrity check of the register (source sha256 + git state). Read-only.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: () => cli("contract-vault", ["verify", "--json"]),
+  },
+  {
+    name: "contract_vault_export",
+    description: "Export the register as csv | md | json (for spreadsheets / reports). Returns the export; writes no file. Read-only.",
+    inputSchema: { type: "object", properties: { format: { type: "string", enum: ["csv", "md", "json"], description: "Export format." }, expiring_before: str("Only rows expiring before this date."), needs_review: { type: "boolean", description: "Only rows needing review." } }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["export", ...(a.format ? ["--format", a.format] : ["--format", "json"]), ...(a.expiring_before ? ["--expiring-before", String(a.expiring_before)] : []), ...(a.needs_review ? ["--needs-review"] : [])]),
+  },
+  {
+    name: "contract_vault_ingest",
+    description: "Register a contract into the vault from an extract_contract JSON file. Writes to the register.",
+    inputSchema: { type: "object", properties: { file: str("Path to an extract_contract JSON file."), counterparty: str("Counterparty name."), name: str("Deal name.") }, required: ["file"], additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["ingest", "--json", ...(a.counterparty ? ["--counterparty", String(a.counterparty)] : []), ...(a.name ? ["--name", String(a.name)] : []), safePath(a.file, "file")]),
+  },
+  {
+    name: "contract_vault_obligation",
+    description: "Track one obligation's lifecycle (status / owner / recurrence / reminder days). Writes to the register.",
+    inputSchema: { type: "object", properties: {
+      deal: str("Deal id."), id: str("Obligation id."),
+      status: { type: "string", enum: ["open", "done", "waived"], description: "New status." },
+      owner: str("Assign an owner."),
+      recurrence: { type: "string", enum: ["none", "weekly", "monthly", "quarterly", "semiannual", "annual"], description: "Recurrence." },
+      reminders: str("Reminder lead days, e.g. 30."),
+    }, required: ["deal", "id"], additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["obligation", "--json", ...(a.status ? ["--status", a.status] : []), ...(a.owner ? ["--owner", String(a.owner)] : []), ...(a.recurrence ? ["--recurrence", a.recurrence] : []), ...(a.reminders ? ["--reminders", String(a.reminders)] : []), String(a.deal), String(a.id)]),
+  },
+  {
+    name: "contract_vault_accept",
+    description: "Mark register field(s) as manually verified (single, or bulk via a file). Writes to the register.",
+    inputSchema: { type: "object", properties: { deal: str("Deal id."), field: str("Field name."), value: str("Verified value."), from_file: str("Path to a bulk-accept file.") }, additionalProperties: false },
+    handler: (a) => cli("contract-vault", ["accept", "--json", ...(a.value ? ["--value", String(a.value)] : []), ...(a.from_file ? ["--from", safePath(a.from_file, "from_file")] : []), ...(a.deal ? [String(a.deal)] : []), ...(a.field ? [String(a.field)] : [])]),
   },
   {
     name: "verify_signature",

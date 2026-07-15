@@ -161,3 +161,26 @@ test("negotiation tools are exposed with well-formed schemas", () => {
   // finalize must NOT apply an e-signature (legal signature stays human)
   assert.match(byName.negotiate_finalize.description, /legal SIGNATURE stays with the human|hand off/i);
 });
+
+test("vault browse/compose + obligations tools are exposed with well-formed schemas", () => {
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const expected = [
+    "template_vault_list", "template_vault_info", "template_vault_diff", "template_vault_history",
+    "template_vault_clauses", "template_vault_clause_library", "template_vault_compare_clauses",
+    "template_vault_stats", "template_vault_verify", "template_vault_compose", "template_vault_swap", "template_vault_export",
+    "contract_vault_obligations", "contract_vault_remind", "contract_vault_at_risk", "contract_vault_review",
+    "contract_vault_verify", "contract_vault_export", "contract_vault_ingest", "contract_vault_obligation", "contract_vault_accept",
+  ];
+  for (const n of expected) {
+    assert.ok(byName[n], `missing tool: ${n}`);
+    assert.equal(byName[n].inputSchema.type, "object", `${n} schema not an object`);
+    assert.equal(byName[n].inputSchema.additionalProperties, false, `${n} must forbid extra props`);
+  }
+  // writes must read as writes, reads as read-only, in their descriptions
+  for (const n of ["template_vault_compose", "template_vault_swap", "contract_vault_ingest", "contract_vault_obligation", "contract_vault_accept"]) {
+    assert.match(byName[n].description, /write/i, `${n} should say it writes`);
+  }
+  for (const n of ["template_vault_list", "contract_vault_obligations", "contract_vault_remind"]) {
+    assert.match(byName[n].description, /read-only/i, `${n} should say read-only`);
+  }
+});
