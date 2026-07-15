@@ -6,12 +6,12 @@
     "url": "https://github.com/DrBaher/contract-ops-mcp",
     "source": "github"
   },
-  "version": "0.1.7",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "contract-ops-mcp",
-      "version": "0.1.7",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       }
