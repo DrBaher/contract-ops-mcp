@@ -22,6 +22,11 @@ curl -fsSL https://cli.drbaher.com/install.sh | sh     # local
 
 Call **`suite_status`** any time to see which CLIs are present and how to install any that aren't.
 
+> **Prefer a ready-made agent?** [**contract-ops-agent**](https://github.com/DrBaher/contract-ops-agent) is a
+> terminal agent that already wraps this server in an *enclosure* — the model's only tools are the contract-ops
+> tools, no shell/filesystem/signing by construction. Bring your own model (Claude, OpenAI, or any
+> OpenAI-compatible endpoint): `npm i -g contract-ops-agent`.
+
 ## Tools
 
 Curated, ergonomic tools (typed inputs, JSON out) for the common operations, plus two escape hatches for the long tail:
