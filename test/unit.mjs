@@ -137,3 +137,27 @@ test("assertSignReadOnly: a leading global value-flag cannot smuggle a mutation 
 test("assertSignReadOnly: empty args are blocked (no command = nothing read-only to run)", () => {
   blocked([]);
 });
+
+// --- NDA drafting & negotiation tools (added for review + negotiation support) ---
+import { TOOLS } from "../contract-ops-mcp.mjs";
+
+test("negotiation tools are exposed with well-formed schemas", () => {
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
+  const expected = [
+    "nda_setup", "generate_redlines", "draft_nda",
+    "negotiate_status", "negotiate_review", "negotiate_diff", "negotiate_analyze", "negotiate_validate",
+    "negotiate_init", "negotiate_counter", "negotiate_accept", "negotiate_finalize",
+  ];
+  for (const n of expected) {
+    assert.ok(byName[n], `missing tool: ${n}`);
+    assert.equal(byName[n].inputSchema.type, "object", `${n} schema not an object`);
+    assert.equal(byName[n].inputSchema.additionalProperties, false, `${n} must forbid extra props`);
+    assert.ok(byName[n].description.length > 20, `${n} needs a real description`);
+  }
+  // the four signing acts must be described as commitments (so the harness/agent knows)
+  for (const n of ["negotiate_init", "negotiate_counter", "negotiate_accept"]) {
+    assert.match(byName[n].description, /sign/i, `${n} should flag that it signs`);
+  }
+  // finalize must NOT apply an e-signature (legal signature stays human)
+  assert.match(byName.negotiate_finalize.description, /legal SIGNATURE stays with the human|hand off/i);
+});
