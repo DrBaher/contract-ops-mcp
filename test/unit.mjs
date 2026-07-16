@@ -184,3 +184,31 @@ test("vault browse/compose + obligations tools are exposed with well-formed sche
     assert.match(byName[n].description, /read-only/i, `${n} should say read-only`);
   }
 });
+
+// --- completeness: every exposed tool is well-formed (guards against a new
+//     tool shipping with a malformed/missing schema, and covers the legacy
+//     tools that had no direct test) ---
+test("every tool has a well-formed schema and a real description", () => {
+  assert.ok(TOOLS.length >= 50, `expected the full tool set, got ${TOOLS.length}`);
+  const seen = new Set();
+  for (const t of TOOLS) {
+    assert.equal(typeof t.name, "string");
+    assert.ok(t.name.length > 0 && !seen.has(t.name), `duplicate/empty tool name: ${t.name}`);
+    seen.add(t.name);
+    assert.ok(typeof t.description === "string" && t.description.length > 20, `${t.name}: weak description`);
+    assert.ok(t.inputSchema && t.inputSchema.type === "object", `${t.name}: inputSchema must be an object`);
+    assert.equal(t.inputSchema.additionalProperties, false, `${t.name}: must forbid extra props`);
+    // every declared property must itself be a typed schema (no bare/empty props)
+    for (const [k, v] of Object.entries(t.inputSchema.properties ?? {})) {
+      assert.ok(v && (v.type || v.enum), `${t.name}.${k}: property needs a type or enum`);
+    }
+    // required entries must exist in properties
+    for (const r of t.inputSchema.required ?? []) {
+      assert.ok(t.inputSchema.properties?.[r], `${t.name}: required "${r}" not in properties`);
+    }
+  }
+  // the seven previously-untouched tools are now covered by the loop above
+  for (const legacy of ["convert_to_pdf", "audit_show", "verify_receipt", "template_vault_find", "template_vault_get", "contract_vault_query", "contract_vault_risk"]) {
+    assert.ok(seen.has(legacy), `legacy tool missing from TOOLS: ${legacy}`);
+  }
+});
